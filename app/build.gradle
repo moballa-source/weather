@@ -1,17 +1,41 @@
 apply plugin: 'com.android.application'
+apply plugin: 'me.tatarka.retrolambda'
+apply plugin: 'com.neenbedankt.android-apt'
+apply plugin: 'hu.supercluster.paperwork'
+apply plugin: 'com.github.ben-manes.versions'
+apply from: '../tools/jacoco.gradle'
+
+paperwork {
+	set = [
+			gitSha:    gitSha(),
+			buildDate: buildTime("dd-MM-yyyy HH:00:00 z", "UTC"),
+	]
+}
 
 android {
-	compileSdkVersion 24
-	buildToolsVersion "24.0.1"
 	defaultConfig {
-		applicationId "com.moballa.weather.app"
-		minSdkVersion 16
-		targetSdkVersion 24
-		versionCode 1
-		versionName "1.0"
 		testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
 	}
+
+	productFlavors {
+		dev {
+			applicationId = "${GROUP_ID}.dev"
+		}
+		beta {
+			applicationId = "${GROUP_ID}.beta"
+		}
+	}
+
 	buildTypes {
+		debug {
+			applicationIdSuffix '.debug'
+			versionNameSuffix '-debug'
+			pseudoLocalesEnabled(true)
+
+			// Enables code coverage with Jacoco only for instrumentation tests.
+			// Coverage for JVM tests done by tools/jacoco.gradle.
+			testCoverageEnabled true
+		}
 		release {
 			minifyEnabled false
 			proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
@@ -20,10 +44,41 @@ android {
 }
 
 dependencies {
-	compile fileTree(dir: 'libs', include: ['*.jar'])
-	androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
-		exclude group: 'com.android.support', module: 'support-annotations'
-	})
-	compile 'com.android.support:appcompat-v7:24.2.0'
-	testCompile 'junit:junit:4.12'
+	apt     libraries.daggerCompiler
+	compile libraries.dagger
+
+	apt     libraries.butterKnifeCompiler
+	compile libraries.butterKnife
+
+	compile libraries.rxJava
+	compile libraries.rxLint
+
+	compile libraries.supportAnnotations
+	compile libraries.supportAppCompat
+	compile libraries.supportDesign
+
+	compile libraries.timber
+
+	// unit tests
+	testCompile libraries.junit
+	testCompile libraries.mockitoCore
+
+	// functional tests
+	androidTestApt      libraries.daggerCompiler
+	androidTestCompile  libraries.supportTestRunner
+	androidTestCompile  libraries.supportTestRules
+	androidTestCompile  libraries.espressoCore
+	androidTestCompile  (libraries.espressoContrib) {
+		// Causes IncompatibleClassChangeError. As always…
+		exclude module: 'support-annotations'
+		exclude module: 'recyclerview-v7'
+		exclude module: 'support-v4'
+	}
+}
+
+configurations.all {
+	resolutionStrategy {
+		// Force our version of support-annotations, we have a conflict between app and androidTest dependency resolution.
+		force libraries.supportAnnotations
+	}
 }

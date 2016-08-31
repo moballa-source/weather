@@ -1,20 +1,131 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
+apply from: 'dependencies.gradle'
 
 buildscript {
+	// Gradle will not find vars defined in an external file when referring to them
+	// in the buildscript block, unless you link it from the buildscript block, too.
+	apply from: 'dependencies.gradle'
+
 	repositories {
 		jcenter()
 	}
-	dependencies {
-		classpath 'com.android.tools.build:gradle:2.2.0-beta1'
 
-		// NOTE: Do not place your application dependencies here; they belong
-		// in the individual module build.gradle files
+	dependencies {
+		classpath gradlePlugins.android
+
+		// Compile-time annotation processing.
+		classpath gradlePlugins.apt
+
+		// Backport of some Java 8 language features such as Lambdas and method references.
+		classpath gradlePlugins.retrolambda
+
+		// Needed for Lint + Retrolambda.
+		classpath gradlePlugins.lombok
+
+		// Generates build info without breaking incremental builds.
+		classpath gradlePlugins.paperwork
+
+		// Code coverage.
+		classpath gradlePlugins.jacoco
+
+		// Check latest version of dependencies, task: dependencyUpdates
+		classpath gradlePlugins.versions
 	}
+
+	// Part of workaround for Lint + Retrolambda.
+	configurations.classpath.exclude group: 'com.android.tools.external.lombok'
 }
 
 allprojects {
 	repositories {
 		jcenter()
+	}
+
+	// Workaround to prevent Gradle from stealing focus from other apps during tests run/etc.
+	// https://gist.github.com/artem-zinnatullin/4c250e04636e25797165
+	tasks.withType(JavaForkOptions) {
+		jvmArgs '-Djava.awt.headless=true'
+	}
+}
+
+subprojects {
+	project.plugins.whenPluginAdded { plugin ->
+		if ('com.android.build.gradle.AppPlugin'.equals(plugin.class.name) ||
+				'com.android.build.gradle.LibraryPlugin'.equals(plugin.class.name)) {
+
+			project.android {
+				compileSdkVersion versions.compileSdk
+				buildToolsVersion versions.buildTools
+
+				defaultConfig {
+					minSdkVersion versions.minSdk
+					targetSdkVersion versions.targetSdk
+					versionName "${VERSION_NAME}"
+					versionCode VERSION_CODE.toInteger()
+				}
+
+				compileOptions {
+					sourceCompatibility JavaVersion.VERSION_1_8
+					targetCompatibility JavaVersion.VERSION_1_8
+				}
+
+				dexOptions {
+					preDexLibraries = !rootProject.hasProperty('disablePreDex')
+				}
+
+				packagingOptions {
+					exclude 'META-INF/NOTICE'
+					exclude 'META-INF/NOTICE.txt'
+					exclude 'META-INF/LICENSE'
+					exclude 'META-INF/LICENSE.txt'
+					exclude 'META-INF/services/javax.annotation.processing.Processor'
+				}
+
+				// This allows us see tests execution progress in the output on the CI.
+				testOptions.unitTests.all {
+					testLogging {
+						events 'passed', 'skipped', 'failed', 'standardOut', 'standardError'
+						exceptionFormat 'full'
+					}
+				}
+
+				lintOptions {
+					warningsAsErrors true
+					abortOnError true // Fail early.
+					textReport true
+					textOutput 'stdout'
+					disable 'GoogleAppIndexingWarning' // App does not have deep linking.
+					disable 'InvalidPackage'
+					// Okio references java.nio that does not presented in Android SDK.
+				}
+
+				if (project.hasProperty('keyStore')) {
+					signingConfigs {
+						release {
+							storeFile file(keyStore)
+							keyAlias keyName
+							storePassword storePass
+							keyPassword keyPass
+						}
+					}
+					buildTypes.release.signingConfig = signingConfigs.release
+				}
+			}
+
+			afterEvaluate {
+				dependencyUpdates.outputDir = new File("${projectDir}/build/reports/versions")
+
+				// Log instrumentation tests results.
+				tasks.withType(com.android.build.gradle.internal.tasks.AndroidTestTask) { task ->
+					task.doFirst {
+						logging.level = LogLevel.INFO
+					}
+					task.doLast {
+						logging.level = LogLevel.LIFECYCLE
+					}
+				}
+			}
+		}
 	}
 }
 
